@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAC Firebase Control Panel v2</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Dark theme custom styles */
+    body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
+    .glass-card { 
+      background: rgba(30, 41, 59, 0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    .glass-card-light {
+      background: rgba(51, 65, 85, 0.6);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+    }
+    .animate-pulse-glow {
+      animation: pulse-glow 2s ease-in-out infinite alternate;
+    }
+    @keyframes pulse-glow {
+      from { box-shadow: 0 0 5px rgba(34, 197, 94, 0.5); }
+      to { box-shadow: 0 0 20px rgba(34, 197, 94, 0.8); }
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen">
+  <div class="max-w-7xl mx-auto p-4 md:p-6">
+    <header class="mb-6 flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">RAC Firebase Control Panel v2</h1>
+        <p class="text-sm text-slate-400">Single‑file web app to control ESP32 smart lock, manage RFID users, and filter/export events (using Firebase RTDB REST + streaming).</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <div id="liveIndicator" class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+        <span id="connStatus" class="text-sm text-red-400">Disconnected</span>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <div class="mb-4 flex gap-2 flex-wrap">
+      <button data-tab="tab-conn" class="tab-btn rounded-xl px-4 py-2 bg-slate-700 text-white border border-slate-600 hover:bg-slate-600 transition-all">Connection</button>
+      <button data-tab="tab-control" class="tab-btn rounded-xl px-4 py-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all">Control</button>
+      <button data-tab="tab-users" class="tab-btn rounded-xl px-4 py-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all">Users</button>
+      <button data-tab="tab-events" class="tab-btn rounded-xl px-4 py-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all">Events</button>
+      <button data-tab="tab-config" class="tab-btn rounded-xl px-4 py-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all">Config</button>
+    </div>
+
+    <!-- Connection -->
+    <section id="tab-conn" class="tab-pane glass-card rounded-2xl shadow-2xl p-4 md:p-6">
+      <h2 class="text-xl font-semibold mb-4 text-blue-400">Connection</h2>
+      <div class="grid md:grid-cols-3 gap-4">
+        <label class="block">
+          <span class="text-sm font-medium text-slate-300">Database URL (no trailing slash)</span>
+          <input id="dbUrl" class="mt-1 w-full rounded-xl bg-slate-800 border border-slate-600 text-slate-100 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" placeholder="https://<project>.asia-southeast1.firebasedatabase.app" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-slate-300">Legacy DB Secret (testing only)</span>
+          <input id="dbAuth" type="password" class="mt-1 w-full rounded-xl bg-slate-800 border border-slate-600 text-slate-100 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" placeholder="<secret>" />
+        </label>
+        <div class="flex items-end gap-2">
+          <button id="connectBtn" class="rounded-xl px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg">Connect</button>
+          <button id="disconnectBtn" class="rounded-xl px-4 py-2 bg-slate-700 text-slate-300 hover:bg-slate-600 transition-all">Disconnect</button>
+        </div>
+      </div>
+      <p class="mt-2 text-xs text-amber-400">Security note: don't deploy this with a real secret; for production use Firebase Web SDK and secure rules/auth.</p>
+    </section>
+
+    <!-- Control & State -->
+    <section id="tab-control" class="tab-pane hidden">
+      <div class="grid md:grid-cols-2 gap-6 mb-6">
+        <div class="glass-card rounded-2xl shadow-2xl p-4 md:p-6">
+          <h2 class="text-xl font-semibold mb-4 text-green-400">Servo Control</h2>
+          <div class="flex items-center gap-3 mb-3">
+            <input id="servoRange" type="range" min="0" max="180" value="70" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer slider"/>
+            <input id="servoValue" type="number" min="0" max="180" value="70" class="w-20 rounded-xl bg-slate-800 border border-slate-600 text-slate-100 px-2 py-1 focus:border-green-500"/>
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <button id="servoSend" class="rounded-xl px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold hover:from-green-600 hover:to-green-700 transition-all shadow-lg">Send /servo</button>
+            <button id="servoOpen" class="rounded-xl px-4 py-2 bg-slate-700 text-slate-300 hover:bg-slate-600 transition-all">Open (unlock)</button>
+            <button id="servoClose" class="rounded-xl px-4 py-2 bg-slate-700 text-slate-300 hover:bg-slate-600 transition-all">Close (lock)</button>
+          </div>
+          <p class="text-xs text-slate-400 mt-2">Writes to <code class="bg-slate-800 px-1 rounded">/servo</code> (compat). Device mirrors to <code class="bg-slate-800 px-1 rounded">/state/servo_angle</code>.</p>
+        </div>
+        <div class="glass-card rounded-2xl shadow-2xl p-4 md:p-6">
+          <h2 class="text-xl font-semibold mb-4 text-purple-400">Live State</h2>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div><div class="text-slate-400">Mode</div><div id="stateMode" class="font-mono text-slate-100">—</div></div>
+            <div><div class="text-slate-400">Servo Angle</div><div id="stateServo" class="font-mono text-slate-100">—</div></div>
+            <div><div class="text-slate-400">IP</div><div id="stateIp" class="font-mono text-slate-100">—</div></div>
+            <div><div class="text-slate-400">RSSI</div><div id="stateRssi" class="font-mono text-slate-100">—</div></div>
+            <div><div class="text-slate-400">Needs Reboot</div><div id="stateReboot" class="font-mono text-slate-100">—</div></div>
+            <div><div class="text-slate-400">Uptime (ms)</div><div id="stateUptime" class="font-mono text-slate-100">—</div></div>
+            <div><div class="text-slate-400">Last UID</div><div id="stateUID" class="font-mono text-slate-100">—</div></div>
+            <div><div class="text-slate-400">Last User</div><div id="stateUser" class="font-mono text-slate-100">—</div></div>
+          </div>
+          <p class="text-xs text-slate-400 mt-2">Streaming <code class="bg-slate-800 px-1 rounded">/state</code> via REST <code class="bg-slate-800 px-1 rounded">EventSource</code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Users Management -->
+    <section id="tab-users" class="tab-pane hidden glass-card rounded-2xl shadow-2xl p-4 md:p-6">
+      <h2 class="text-xl font-semibold mb-4 text-blue-400">RFID Users</h2>
+      <div class="grid md:grid-cols-3 gap-3 mb-4">
+        <label class="block"><span class="text-sm font-medium text-slate-300">UID (hex)</span><input id="u_uid" class="mt-1 w-full rounded-xl bg-slate-800 border border-slate-600 text-slate-100 px-3 py-2 focus:border-blue-500" placeholder="04AB1234"/></label>
+        <label class="block"><span class="text-sm font-medium text-slate-300">Name</span><input id="u_name" class="mt-1 w-full rounded-xl bg-slate-800 border border-slate-600 text-slate-100 px-3 py-2 focus:border-blue-500" placeholder="Alice"/></label>
+        <div class="flex items-end gap-2">
+          <button id="u_add" class="rounded-xl px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg">Add / Update</button>
+          <button id="u_refresh" class="rounded-xl px-4 py-2 bg-slate-700 text-slate-300 hover:bg-slate-600 transition-all">Refresh</button>
+        </div>
+      </div>
+      <div class="overflow-auto glass-card-light rounded-xl">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-700/50 text-slate-200">
+            <tr>
+              <th class="text-left p-3">UID</th>
+              <th class="text-left p-3">Name</th>
+              <th class="text-left p-3">Enabled</th>
+              <th class="text-left p-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody" class="text-slate-200"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Events -->
+    <section id="tab-events" class="tab-pane hidden glass-card rounded-2xl shadow-2xl p-4 md:p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold text-yellow-400">Events</h2>
+        <div class="flex items-center gap-2">
+          <div id="eventsLiveIndicator" class="w-2 h-2 rounded-full bg-green-500 animate-pulse-glow"></div>
+          <span class="text-xs text-slate-400">Live updates</span>
+        </div>
+      </div>
+      <div class="grid md:grid-cols-5 gap-3 mb-3 text-sm">
+        <label class="text-slate-300">Type
+          <select id="ev_type" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-yellow-500">
+            <option value="">All</option>
+            <option>UNLOCK</option>
+            <option>LOCK</option>
+            <option>RFID_DENY</option>
+            <option>REMOTE</option>
+            <option>BOOT</option>
+            <option>ERROR</option>
+          </select>
+        </label>
+        <label class="text-slate-300">From
+          <input id="ev_from" type="datetime-local" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-yellow-500" />
+        </label>
+        <label class="text-slate-300">To
+          <input id="ev_to" type="datetime-local" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-yellow-500" />
+        </label>
+        <label class="text-slate-300">User contains
+          <input id="ev_user" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-yellow-500" placeholder="userId or name" />
+        </label>
+        <label class="text-slate-300">UID contains
+          <input id="ev_uid" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-yellow-500" placeholder="04AB" />
+        </label>
+      </div>
+      <div class="flex gap-2 mb-3">
+        <button id="ev_refresh" class="rounded-xl px-4 py-2 bg-slate-700 text-white hover:bg-slate-600 transition-all">Refresh (last 500)</button>
+        <button id="ev_export" class="rounded-xl px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 transition-all shadow-lg">Export CSV (filtered)</button>
+        <button id="ev_clear" class="rounded-xl px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-all shadow-lg">Clear All Events</button>
+      </div>
+      <div class="overflow-auto glass-card-light rounded-xl max-h-96">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-700/50 text-slate-200 sticky top-0">
+            <tr>
+              <th class="text-left p-3">Timestamp</th>
+              <th class="text-left p-3">Type</th>
+              <th class="text-left p-3">By</th>
+              <th class="text-left p-3">UID</th>
+              <th class="text-left p-3">User</th>
+              <th class="text-left p-3">Reason</th>
+              <th class="text-left p-3">Duration (ms)</th>
+              <th class="text-left p-3">Key</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody" class="text-slate-200"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Config -->
+    <section id="tab-config" class="tab-pane hidden">
+      <div class="grid md:grid-cols-2 gap-6 mb-6">
+        <div class="glass-card rounded-2xl shadow-2xl p-4 md:p-6">
+          <h2 class="text-xl font-semibold mb-4 text-orange-400">Config: Servo</h2>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <label class="text-slate-300">Pin <input id="cfg_servo_pin" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-orange-500" value="22"/></label>
+            <label class="text-slate-300">Unlock <input id="cfg_servo_unlock" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-orange-500" value="0"/></label>
+            <label class="text-slate-300">Lock <input id="cfg_servo_lock" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-orange-500" value="90"/></label>
+            <label class="text-slate-300">Min µs <input id="cfg_servo_min" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-orange-500" value="500"/></label>
+            <label class="text-slate-300">Max µs <input id="cfg_servo_max" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-orange-500" value="2400"/></label>
+          </div>
+          <button id="saveServoCfg" class="mt-3 rounded-xl px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold hover:from-orange-600 hover:to-orange-700 transition-all shadow-lg">Save</button>
+        </div>
+        <div class="glass-card rounded-2xl shadow-2xl p-4 md:p-6">
+          <h2 class="text-xl font-semibold mb-4 text-pink-400">Config: Lock & LCD</h2>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <label class="text-slate-300">Auto‑lock (ms) <input id="cfg_auto_lock" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500" value="8000"/></label>
+            <label class="text-slate-300">RFID Enable <select id="cfg_rfid_enable" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500"><option value="true">true</option><option value="false">false</option></select></label>
+            <label class="text-slate-300">Remote Enable <select id="cfg_remote_enable" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500"><option value="true">true</option><option value="false">false</option></select></label>
+            <label class="text-slate-300">Poll (ms) <input id="cfg_poll" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500" value="250"/></label>
+            <label class="text-slate-300">Servo timeout (ms) <input id="cfg_servo_to" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500" value="2000"/></label>
+            <label class="text-slate-300">LCD Enable <select id="cfg_lcd_enable" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500"><option value="true">true</option><option value="false">false</option></select></label>
+            <label class="text-slate-300">I2C SDA <input id="cfg_lcd_sda" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500" value="27"/></label>
+            <label class="text-slate-300">I2C SCL <input id="cfg_lcd_scl" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500" value="26"/></label>
+            <label class="text-slate-300">LCD Addr (hex) <input id="cfg_lcd_addr" type="text" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500" value="0x27"/></label>
+            <label class="text-slate-300">Cols × Rows
+              <div class="flex gap-2">
+                <input id="cfg_lcd_cols" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500" value="16"/>
+                <input id="cfg_lcd_rows" type="number" class="w-full bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1 focus:border-pink-500" value="2"/>
+              </div>
+            </label>
+          </div>
+          <button id="saveLockLcdCfg" class="mt-3 rounded-xl px-4 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white font-semibold hover:from-pink-600 hover:to-pink-700 transition-all shadow-lg">Save</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // ---------------- Core RTDB REST helpers ----------------
+    let DB_URL = '', AUTH = '';
+    let esState = null, esServo = null, esEvents = null;
+
+    const $ = (id) => document.getElementById(id);
+    const pad = (n) => n < 10 ? '0'+n : n;
+
+    function setStatus(msg, ok=true){
+      const el = $('connStatus');
+      const indicator = $('liveIndicator');
+      el.textContent = msg;
+      el.className = ok ? 'text-sm text-green-400' : 'text-sm text-red-400';
+      indicator.className = ok ? 'w-3 h-3 rounded-full bg-green-500 animate-pulse-glow' : 'w-3 h-3 rounded-full bg-red-500 animate-pulse';
+    }
+    function pathUrl(path, qp=''){
+      const clean = path.startsWith('/')? path : '/'+path;
+      const base = DB_URL.replace(/\/$/, '') + clean + '.json?auth=' + encodeURIComponent(AUTH);
+      return qp ? base + '&' + qp : base;
+    }
+    async function dbGet(path, qp=''){
+      const r = await fetch(pathUrl(path, qp));
+      if(!r.ok) throw new Error('GET '+path+' -> '+r.status);
+      return r.json();
+    }
+    async function dbPut(path, value){
+      const r = await fetch(pathUrl(path), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(value) });
+      if(!r.ok) throw new Error('PUT '+path+' -> '+r.status);
+      return r.json();
+    }
+    async function dbPatch(path, value){
+      const r = await fetch(pathUrl(path), { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(value) });
+      if(!r.ok) throw new Error('PATCH '+path+' -> '+r.status);
+      return r.json();
+    }
+    async function dbDelete(path){
+      const r = await fetch(pathUrl(path), { method:'DELETE' });
+      if(!r.ok) throw new Error('DELETE '+path+' -> '+r.status);
+      return r.json();
+    }
+
+    // ---------------- Tabs ----------------
+    function showTab(id){
+      document.querySelectorAll('.tab-pane').forEach(e=>e.classList.add('hidden'));
+      $(id).classList.remove('hidden');
+      document.querySelectorAll('.tab-btn').forEach(b=>{
+        b.classList.remove('bg-slate-700', 'text-white');
+        b.classList.add('bg-slate-800', 'text-slate-300');
+      });
+      const activeBtn = document.querySelector(`[data-tab="${id}"]`);
+      activeBtn.classList.remove('bg-slate-800', 'text-slate-300');
+      activeBtn.classList.add('bg-slate-700', 'text-white');
+    }
+    document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click', ()=>showTab(b.getAttribute('data-tab'))));
+    showTab('tab-conn');
+
+    // ---------------- Servo + State ----------------
+    function bindServoUI(){
+      const r = $('servoRange');
+      const v = $('servoValue');
+      if(!r || !v) return;
+      r.addEventListener('input', ()=> v.value = r.value);
+      v.addEventListener('input', ()=>{ const n = Math.max(0, Math.min(180, parseInt(v.value||0,10))); v.value=n; r.value=n; });
+      $('servoSend').addEventListener('click', async ()=>{ try{ await dbPut('/servo', parseInt(v.value,10)); }catch(e){ alert(e.message); } });
+      $('servoOpen').addEventListener('click', async ()=>{ try{ await dbPut('/servo',  parseInt($('cfg_servo_unlock').value||'0',10)); }catch(e){ alert(e.message); } });
+      $('servoClose').addEventListener('click', async ()=>{ try{ await dbPut('/servo',  parseInt($('cfg_servo_lock').value||'90',10)); }catch(e){ alert(e.message); } });
+    }
+
+    function updateStateUI(st){
+      $('stateMode').textContent   = st.mode ?? '—';
+      $('stateServo').textContent  = st.servo_angle ?? '—';
+      $('servoRange') && ($('servoRange').value = st.servo_angle ?? $('servoRange').value);
+      $('servoValue') && ($('servoValue').value = st.servo_angle ?? $('servoValue').value);
+      $('stateIp').textContent     = st.ip ?? '—';
+      $('stateRssi').textContent   = st.rssi ?? '—';
+      $('stateReboot').textContent = st.needs_reboot === true ? 'true' : 'false';
+      $('stateUptime').textContent = st.uptime_ms ?? '—';
+      $('stateUID').textContent    = st.last_uid ?? '—';
+      $('stateUser').textContent   = st.last_user ?? '—';
+    }
+
+    function startStreams(){
+      if(esState){ esState.close(); esState=null; }
+      if(esServo){ esServo.close(); esServo=null; }
+      if(esEvents){ esEvents.close(); esEvents=null; }
+      
+      esState = new EventSource(pathUrl('/state'));
+      esState.onmessage = ev => { if(!ev.data) return; try{ updateStateUI(JSON.parse(ev.data)); }catch{} };
+      esState.onerror = ()=> setStatus('State stream error (retrying...)', false);
+      
+      esServo = new EventSource(pathUrl('/servo'));
+      esServo.onmessage = ev => { if(!ev.data) return; try{ const a = JSON.parse(ev.data); if(typeof a==='number'){ $('servoRange').value=a; $('servoValue').value=a; } }catch{} };
+      esServo.onerror = ()=> setStatus('Servo stream error (retrying...)', false);
+      
+      // Real-time events stream
+      esEvents = new EventSource(pathUrl('/events', 'orderBy="$key"&limitToLast=50'));
+      esEvents.onmessage = ev => { 
+        if(!ev.data) return; 
+        try{ 
+          const newEvents = JSON.parse(ev.data);
+          if(newEvents && typeof newEvents === 'object'){
+            // Update EVENTS with new data
+            for(const [k,v] of Object.entries(newEvents)){
+              if(v && !EVENTS.find(e => e._key === k)){
+                EVENTS.unshift({ _key:k, ...(v||{}) });
+              }
+            }
+            // Keep only latest 500 events
+            EVENTS = EVENTS.slice(0, 500);
+            applyEventFilters();
+          }
+        }catch(e){ console.log('Events stream parse error:', e); } 
+      };
+      esEvents.onerror = ()=> console.log('Events stream error (retrying...)');
+    }
+
+    async function loadInitial(){
+      try{
+        const st = await dbGet('/state'); updateStateUI(st||{});
+        const cfg = await dbGet('/config');
+        if(cfg){
+          const s = cfg.servo||{}; $('cfg_servo_pin').value = s.pin ?? 22; $('cfg_servo_unlock').value = s.unlock_angle ?? 0; $('cfg_servo_lock').value = s.lock_angle ?? 90; $('cfg_servo_min').value = s.min_us ?? 500; $('cfg_servo_max').value = s.max_us ?? 2400;
+          const l = cfg.lock||{}; $('cfg_auto_lock').value = l.auto_lock_ms ?? 8000; $('cfg_rfid_enable').value = String(l.rfid_enable ?? true); $('cfg_remote_enable').value = String(l.remote_enable ?? true);
+          const a = cfg.app||{}; $('cfg_poll').value = a.poll_ms ?? 250; $('cfg_servo_to').value = a.servo_timeout_ms ?? 2000;
+          const lcd = cfg.lcd||{}; $('cfg_lcd_enable').value = String(lcd.enable ?? true); $('cfg_lcd_sda').value = lcd.sda ?? 27; $('cfg_lcd_scl').value = lcd.scl ?? 26; $('cfg_lcd_addr').value = '0x'+((lcd.address ?? 0x27).toString(16)); $('cfg_lcd_cols').value = lcd.cols ?? 16; $('cfg_lcd_rows').value = lcd.rows ?? 2;
+        }
+        startStreams();
+        await usersRefresh();
+        await eventsRefresh();
+        setStatus('Connected');
+      }catch(e){ setStatus('Failed: '+e.message, false); }
+    }
+
+    // ---------------- Users ----------------
+    let USERS = {};
+    function normalizeUser(uid, val){
+      let name = '', enabled = true;
+      if(typeof val === 'string'){ name = val; enabled = true; }
+      else if(val && typeof val === 'object'){ name = val.name || ''; enabled = (val.enabled !== false); }
+      return { uid: uid, name, enabled, raw: val };
+    }
+    function renderUsers(){
+      const body = $('usersBody'); body.innerHTML = '';
+      const entries = Object.entries(USERS).map(([k,v])=>normalizeUser(k,v)).sort((a,b)=>a.uid.localeCompare(b.uid));
+      for(const u of entries){
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors';
+        tr.innerHTML = `
+          <td class="p-3 font-mono text-xs text-blue-300">${u.uid}</td>
+          <td class="p-3">
+            <span class="u-name text-slate-100">${u.name}</span>
+            <input class="u-name-edit hidden w-48 bg-slate-800 border border-slate-600 text-slate-100 rounded px-2 py-1" value="${u.name}">
+          </td>
+          <td class="p-3">${u.enabled?'<span class="px-2 py-1 text-xs rounded bg-green-500/20 text-green-400 border border-green-500/30">enabled</span>':'<span class="px-2 py-1 text-xs rounded bg-red-500/20 text-red-400 border border-red-500/30">disabled</span>'}</td>
+          <td class="p-3">
+            <div class="flex gap-2 flex-wrap">
+              <button class="btn-edit rounded px-3 py-1 bg-blue-600 text-white text-xs hover:bg-blue-700 transition-colors">Edit</button>
+              <button class="btn-toggle rounded px-3 py-1 ${u.enabled?'bg-orange-600 hover:bg-orange-700':'bg-green-600 hover:bg-green-700'} text-white text-xs transition-colors">${u.enabled?'Disable':'Enable'}</button>
+              <button class="btn-del rounded px-3 py-1 bg-red-600 text-white text-xs hover:bg-red-700 transition-colors">Delete</button>
+              <button class="btn-save hidden rounded px-3 py-1 bg-green-600 text-white text-xs hover:bg-green-700">Save</button>
+              <button class="btn-cancel hidden rounded px-3 py-1 bg-slate-600 text-white text-xs hover:bg-slate-700">Cancel</button>
+            </div>
+          </td>`;
+        
+        // Event handlers
+        const nameSpan = tr.querySelector('.u-name');
+        const nameEdit = tr.querySelector('.u-name-edit');
+        const btnEdit = tr.querySelector('.btn-edit');
+        const btnSave = tr.querySelector('.btn-save');
+        const btnCancel = tr.querySelector('.btn-cancel');
+        const btnToggle = tr.querySelector('.btn-toggle');
+        const btnDel = tr.querySelector('.btn-del');
+        
+        btnEdit.addEventListener('click', ()=>{
+          nameSpan.classList.add('hidden'); 
+          nameEdit.classList.remove('hidden'); 
+          btnEdit.classList.add('hidden'); 
+          btnSave.classList.remove('hidden'); 
+          btnCancel.classList.remove('hidden'); 
+          nameEdit.focus();
+        });
+        
+        btnCancel.addEventListener('click', ()=>{
+          nameEdit.value = u.name; 
+          nameSpan.classList.remove('hidden'); 
+          nameEdit.classList.add('hidden'); 
+          btnEdit.classList.remove('hidden'); 
+          btnSave.classList.add('hidden'); 
+          btnCancel.classList.add('hidden');
+        });
+        
+        btnSave.addEventListener('click', async ()=>{
+          try{ 
+            await dbPut('/users/'+u.uid, { name: nameEdit.value.trim(), enabled: u.enabled }); 
+            USERS[u.uid] = { name: nameEdit.value.trim(), enabled: u.enabled }; 
+            renderUsers(); 
+          }catch(e){ alert(e.message); }
+        });
+        
+        btnToggle.addEventListener('click', async ()=>{
+          try{ 
+            const next = !u.enabled; 
+            const name = (USERS[u.uid] && USERS[u.uid].name) || u.name; 
+            await dbPut('/users/'+u.uid, { name, enabled: next }); 
+            USERS[u.uid] = { name, enabled: next }; 
+            renderUsers(); 
+          }catch(e){ alert(e.message); }
+        });
+        
+        btnDel.addEventListener('click', async ()=>{
+          if(!confirm(`Delete user "${u.name}" with UID ${u.uid}?`)) return;
+          try{ 
+            await dbDelete('/users/'+u.uid); 
+            delete USERS[u.uid]; 
+            renderUsers();
+            console.log(`Successfully deleted user ${u.uid}`);
+          }catch(e){ 
+            console.error('Delete error:', e);
+            alert('Delete failed: '+e.message); 
+          }
+        });
+        
+        $('usersBody').appendChild(tr);
+      }
+    }
+    
+    async function usersRefresh(){
+      try{ 
+        USERS = (await dbGet('/users')) || {}; 
+        renderUsers(); 
+      }
+      catch(e){ alert('Users error: '+e.message); }
+    }
+
+    $('u_add').addEventListener('click', async ()=>{
+      const uid = ($('u_uid').value||'').trim().toUpperCase();
+      const name = ($('u_name').value||'').trim();
+      if(!uid || !name) return alert('Provide UID and Name');
+      try{ 
+        await dbPut('/users/'+uid, { name, enabled: true }); 
+        USERS[uid] = { name, enabled: true }; 
+        renderUsers(); 
+        $('u_uid').value=''; 
+        $('u_name').value=''; 
+      }
+      catch(e){ alert(e.message); }
+    });
+    $('u_refresh').addEventListener('click', usersRefresh);
+
+    // ---------------- Events ----------------
+    let EVENTS = []; // raw list
+    function toISO(ts){ 
+      try{ 
+        const d = new Date(ts); 
+        const y=d.getFullYear(); 
+        const M=pad(d.getMonth()+1); 
+        const D=pad(d.getDate()); 
+        const h=pad(d.getHours()); 
+        const m=pad(d.getMinutes()); 
+        const s=pad(d.getSeconds()); 
+        return `${y}-${M}-${D} ${h}:${m}:${s}`;
+      }catch{return String(ts);} 
+    }
+
+    function getEventTypeColor(type){
+      switch(type){
+        case 'UNLOCK': return 'text-green-400';
+        case 'LOCK': return 'text-blue-400';
+        case 'RFID_DENY': return 'text-red-400';
+        case 'REMOTE': return 'text-purple-400';
+        case 'BOOT': return 'text-yellow-400';
+        case 'ERROR': return 'text-orange-400';
+        default: return 'text-slate-300';
+      }
+    }
+
+    function applyEventFilters(){
+      const type = $('ev_type').value;
+      const from = $('ev_from').value ? new Date($('ev_from').value).getTime() : -Infinity;
+      const to   = $('ev_to').value ? new Date($('ev_to').value).getTime()   :  Infinity;
+      const userf = ($('ev_user').value||'').toLowerCase();
+      const uidf  = ($('ev_uid').value||'').toLowerCase();
+      
+      const filtered = EVENTS.filter(e=>{
+        if(type && e.type !== type) return false;
+        if(typeof e.ts === 'number'){
+          if(e.ts < from || e.ts > to) return false;
+        }
+        if(userf && !(`${e.by||''} ${e.user||''}`.toLowerCase().includes(userf))) return false;
+        if(uidf && !(`${e.uid||''}`.toLowerCase().includes(uidf))) return false;
+        return true;
+      });
+      renderEvents(filtered);
+      return filtered;
+    }
+
+    function renderEvents(list){
+      const body = $('eventsBody'); 
+      body.innerHTML = '';
+      // newest first
+      const rows = list.slice().sort((a,b)=> (b.ts||0) - (a.ts||0));
+      for(const ev of rows){
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors';
+        tr.innerHTML = `
+          <td class="p-3 font-mono text-xs text-slate-300">${toISO(ev.ts)}</td>
+          <td class="p-3"><span class="px-2 py-1 rounded text-xs font-medium ${getEventTypeColor(ev.type)}">${ev.type||''}</span></td>
+          <td class="p-3 text-slate-200">${ev.by||''}</td>
+          <td class="p-3 font-mono text-xs text-blue-300">${ev.uid||''}</td>
+          <td class="p-3 text-slate-200">${ev.user||''}</td>
+          <td class="p-3 text-slate-300">${ev.reason||''}</td>
+          <td class="p-3 text-slate-300">${(ev.duration_ms ?? '')}</td>
+          <td class="p-3 font-mono text-xs text-slate-400">${ev._key||''}</td>`;
+        body.appendChild(tr);
+      }
+    }
+
+    async function eventsRefresh(){
+      try{
+        const data = await dbGet('/events', 'orderBy="$key"&limitToLast=500');
+        EVENTS = [];
+        if(data){ 
+          for(const [k,v] of Object.entries(data)){ 
+            EVENTS.push({ _key:k, ...(v||{}) }); 
+          } 
+        }
+        applyEventFilters();
+      }catch(e){ alert('Events error: '+e.message); }
+    }
+
+    async function clearAllEvents(){
+      if(!confirm('Are you sure you want to delete ALL events? This cannot be undone.')) return;
+      try{
+        await dbDelete('/events');
+        EVENTS = [];
+        renderEvents([]);
+        console.log('All events cleared successfully');
+      }catch(e){
+        console.error('Clear events error:', e);
+        alert('Failed to clear events: '+e.message);
+      }
+    }
+
+    function downloadCSV(rows){
+      const header = ['ts','iso','type','by','uid','user','reason','duration_ms','key'];
+      const csv = [header.join(',')].concat(rows.map(e=>{
+        const iso = toISO(e.ts||'');
+        const vals = [e.ts||'', iso, e.type||'', e.by||'', e.uid||'', e.user||'', e.reason||'', e.duration_ms||'', e._key||''];
+        return vals.map(v=>{
+          const s = String(v).replace(/"/g,'""');
+          return /[",\n]/.test(s) ? '"'+s+'"' : s;
+        }).join(',');
+      })).join('\n');
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'rac_events.csv'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    $('ev_refresh').addEventListener('click', eventsRefresh);
+    $('ev_export').addEventListener('click', ()=>{ const filtered = applyEventFilters(); downloadCSV(filtered); });
+    $('ev_clear').addEventListener('click', clearAllEvents);
+    ['ev_type','ev_from','ev_to','ev_user','ev_uid'].forEach(id=> $(id).addEventListener('input', applyEventFilters));
+
+    // ---------------- Config save ----------------
+    $('saveServoCfg')?.addEventListener('click', async ()=>{
+      const p = parseInt($('cfg_servo_pin').value,10);
+      const unlock = parseInt($('cfg_servo_unlock').value,10);
+      const lock   = parseInt($('cfg_servo_lock').value,10);
+      const minus  = parseInt($('cfg_servo_min').value,10);
+      const maxus  = parseInt($('cfg_servo_max').value,10);
+      try{ 
+        await dbPatch('/config/servo', { pin:p, unlock_angle:unlock, lock_angle:lock, min_us:minus, max_us:maxus }); 
+        setStatus('Saved servo config'); 
+      }
+      catch(e){ alert(e.message); }
+    });
+    
+    $('saveLockLcdCfg')?.addEventListener('click', async ()=>{
+      const lock = { 
+        auto_lock_ms: parseInt($('cfg_auto_lock').value,10), 
+        rfid_enable: $('cfg_rfid_enable').value==='true', 
+        remote_enable: $('cfg_remote_enable').value==='true' 
+      };
+      const app  = { 
+        poll_ms: parseInt($('cfg_poll').value,10), 
+        servo_timeout_ms: parseInt($('cfg_servo_to').value,10) 
+      };
+      const lcd  = { 
+        enable: $('cfg_lcd_enable').value==='true', 
+        sda: parseInt($('cfg_lcd_sda').value,10), 
+        scl: parseInt($('cfg_lcd_scl').value,10), 
+        address: parseInt(($('cfg_lcd_addr').value||'0x27'),16), 
+        cols: parseInt($('cfg_lcd_cols').value,10), 
+        rows: parseInt($('cfg_lcd_rows').value,10) 
+      };
+      try{ 
+        await dbPatch('/config/lock', lock); 
+        await dbPatch('/config/app', app); 
+        await dbPatch('/config/lcd', lcd); 
+        setStatus('Saved lock/LCD config'); 
+      }
+      catch(e){ alert(e.message); }
+    });
+
+    // ---------------- Connect / Disconnect ----------------
+    $('connectBtn').addEventListener('click', async ()=>{
+      DB_URL = $('dbUrl').value.trim(); 
+      AUTH = $('dbAuth').value.trim();
+      if(!DB_URL || !AUTH) return setStatus('Missing DB URL or secret', false);
+      setStatus('Connecting…');
+      try{ 
+        await loadInitial(); 
+        showTab('tab-control'); 
+      }
+      catch(e){ setStatus('Error: '+e.message, false); }
+    });
+    
+    $('disconnectBtn').addEventListener('click', ()=>{
+      if(esState){ esState.close(); esState=null; }
+      if(esServo){ esServo.close(); esServo=null; }
+      if(esEvents){ esEvents.close(); esEvents=null; }
+      setStatus('Disconnected', false);
+      showTab('tab-conn');
+    });
+
+    // Initialize controls
+    bindServoUI();
+  </script>
+</body>
+</html>
